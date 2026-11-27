@@ -1,0 +1,724 @@
+<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>배양공정 기술이전</title><style>
+*{box-sizing:border-box}body{margin:0;background:#f3f6f5;color:#163932;font:16px/1.5 "Malgun Gothic",Arial,sans-serif}header{background:#114c42;color:white;padding:18px max(5vw,20px);font-weight:bold;letter-spacing:.03em}main{max-width:1020px;margin:auto;padding:40px 20px}h1{font-size:clamp(28px,4vw,42px);letter-spacing:-.06em;margin:0}p{color:#516760}section{margin:24px 0;background:white;border:1px solid #cbdad5;border-radius:14px;overflow:hidden}h2{font-size:20px;margin:0;padding:18px 20px;background:#dfede7}small{font-size:14px;color:#527267}article{padding:10px 20px;display:grid;grid-template-columns:2fr 1fr 1fr;align-items:center;gap:14px;border-top:1px solid #e2ebe7}label{display:flex;gap:10px;align-items:center;cursor:pointer}input[type=checkbox]{width:18px;height:18px;accent-color:#13775d;flex:none}input[type=text]{font:inherit;width:100%;border:1px solid #91afa2;border-radius:6px;padding:8px}input:disabled{background:#f4f6f5;border-color:#e7ece9}article:has(:checked){background:#f3fbf6}.head{font-weight:bold;font-size:14px;color:#546b62}output{font-weight:bold;color:#126a51}@media(max-width:620px){article{grid-template-columns:1fr 1fr;padding:12px}label{grid-column:span 2}.head{display:none}h2{font-size:18px}}
+button,select{font:inherit;border:1px solid #87a99d;background:white;padding:8px;border-radius:6px}button{cursor:pointer}#create{background:#175e50;color:white}aside{padding:18px;background:#eff7f4}aside p{margin:6px 0}.diameter-label{padding-left:32px}@media(max-width:620px){.diameter-label{grid-column:span 2;padding-left:0}}nav{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}nav button{padding:7px 15px}nav button[aria-pressed=true]{background:#175e50;color:white}#commit{background:#175e50;color:white;padding:11px 24px}.sheet{width:100%;table-layout:fixed;border-collapse:collapse}.sheet th,.sheet td{text-align:left;padding:10px;border-top:1px solid #dbe5df;overflow-wrap:anywhere}.sheet th:first-child{width:44%}#summary h3,#summary p{margin:16px}.sheet-formula{display:block;margin-top:4px;font-size:.875rem;line-height:1.45}.ru-entry{display:flex;align-items:center;gap:5px}.ru-entry input{min-width:0}.ru-entry button,#summary h3 button{white-space:nowrap;font-size:13px;padding:6px}#summary h3 button{float:right}@media(max-width:620px){.ru-entry{flex-wrap:wrap}}.ru-entry{flex-wrap:wrap}.ru-entry label{font-size:14px;gap:2px}.ru-entry input[type=text]{flex:1 1 90px}.ru-entry:has(.ru-actions){display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center}.ru-actions{display:grid;gap:4px}.ru-actions button[aria-pressed=true]{background:#175e50;color:white;border-color:#175e50}.project-guide{margin:12px 0 20px;padding:16px 20px 16px 42px;background:#e5f4ee;border-left:5px solid #176453;border-radius:6px;color:#173e35;line-height:1.65}.project-guide li+li{margin-top:6px}.project-guide li::marker,.project-guide strong{font-weight:700;color:#104d40}#stageSettings:not(:empty){background:#e5f4ee;border-left:4px solid #176453;border-radius:6px;padding:14px 18px;margin:12px 0;color:#173e35}#stageSettings label{display:block;font-weight:650;margin:4px 0}#stageSettings small{display:block;margin:4px 0}#stageSettings input[type=text]{margin-left:8px}</style><header>배양공정 기술이전 Intelligence</header><main><h1>배양공정 기술이전</h1><ol class="project-guide" aria-label="사용 방법"><li>아래에 <strong>프로젝트명</strong>을 입력한 뒤 <strong>‘입력한 이름으로 새 프로젝트’</strong> 버튼을 누르세요.</li><li>각 공정에서 <strong>이번 기술이전에 사용할 항목만 체크</strong>하세요. 선택한 항목에 SU·RU 값을 입력하거나 계산한 뒤 공정별로 저장할 수 있습니다.</li></ol><section style="padding:18px"><label>저장된 프로젝트 <select id="projects"></select></label><p><label>프로젝트명 <input id="projectName" type="text" maxlength="100"></label></p><button id="rename">이름 저장</button> <button id="create">입력한 이름으로 새 프로젝트</button> <small id="status" role="status"></small></section><nav aria-label="화면 선택"><button id="editView">공정 입력</button><button id="sheetView">저장된 시트</button></nav><div id="editor"><nav id="tabs" aria-label="공정 선택"></nav><div id="stageSettings"></div><output id="count" aria-live="polite"></output><div id="groups"></div><button id="commit">현재 공정 저장</button></div><div id="summary" hidden></div></main><script>
+const categories=[
+['Agitation & Equipment','교반 및 장비',['Shaker RPM','Shaker Orbital Diameter','Flask Nominal Volume','Flask Working Volume','Fill Ratio','Flask Geometry','Flask Closure Type','Stage (Passage)','Incubator Temperature','Incubator CO₂ Concentration']],
+['Cell Growth','세포 성장',['Initial VCD','Initial Viability','Final VCD','Final Viability','Culture Duration','Specific Growth Rate (μ)','Doubling Time (DT)','Total Viable Cells','Inoculation Volume','Inoculum Hold Time']]];
+const key='flask-projects-v2';
+let book;
+try{book=JSON.parse(localStorage.getItem(key))}catch{}
+if(!book){
+ let legacy={};try{legacy=JSON.parse(localStorage.getItem('flask-transfer-sheet-v1'))||{}}catch{}
+ book={active:'first',entries:{first:{name:'첫 프로젝트',data:legacy}}};
+}
+let data;
+const msg=document.querySelector('#status');
+function save(){try{localStorage.setItem(key,JSON.stringify(book));msg.textContent='입력 내용 임시 저장됨';return true}catch{msg.textContent='브라우저 저장 실패';return false}}
+function changeProject(createNew){
+ const name=projectName.value.trim();
+ if(!name||Object.entries(book.entries).some(([id,p])=>(createNew||id!==book.active)&&p.name===name)){msg.textContent='중복되지 않는 프로젝트명을 입력하세요';return}
+ if(createNew){book.active=crypto.randomUUID();book.entries[book.active]={name,data:{}}}
+ else book.entries[book.active].name=name;
+ render();save()
+}
+create.onclick=()=>changeProject(true);rename.onclick=()=>changeProject(false);
+projects.onchange=()=>{book.active=projects.value;render();save()};
+const stages=['Flask','Wave','STR','Stainless','Harvest'];
+const shaker={speed:'Shaker RPM',dimension:'Shaker Orbital Diameter',symbol:'궤도 직경',unit:'mm',basis:'동일 궤도 가속도 기준',note:'SU와 RU의 플라스크 형상(Geometry)이 같다고 가정합니다.'};
+const centrifuge={speed:'Centrifuge RPM',dimension:'Rotor Radius',symbol:'로터 반경',unit:'cm',basis:'동일 상대원심력(RCF) 기준',note:'양측 모두 같은 기준 위치에서 측정한 로터 반경(cm)을 입력하세요. RCF(×g) = 1.118 × 10⁻⁵ × 반경(cm) × RPM².'};
+const gasNames=['Headspace','Sparger Air','Sparger O₂','Sparger CO₂'];
+const waveUnits={
+ 'Rocking Rate':'rocks/min','Rocking Angle':'°',
+ 'Initial VCD':'10⁶ cells/mL','Final VCD':'10⁶ cells/mL',
+ 'Initial Viability':'%','Final Viability':'%',
+ 'Culture Duration':'h','Specific Growth Rate (μ)':'h⁻¹',
+ 'Doubling Time (DT)':'h','Total Viable Cells':'cells',
+ 'Inoculation Volume':'L','Inoculum Hold Time':'h'
+};
+const flaskUnits={
+ 'Media warming temperature':'°C','Total warming time for media':'h','Batched media volume':'mL',
+ 'Water bath temperature':'°C','Vial thaw time':'min','Centrifugation force':'×g',
+ 'Centrifugation time':'min','Target initial VCD':'10⁶ cells/mL',
+ ...waveUnits,
+ 'Flask Nominal Volume':'mL','Flask Working Volume':'mL','Fill Ratio':'%',
+ 'Incubator Temperature':'°C','Incubator CO₂ Concentration':'%',
+ 'Inoculation Volume':'mL'
+};
+function flaskLabel(name){
+ return flaskUnits[name]?name+' ('+flaskUnits[name]+')':name;
+}
+function waveLabel(name){
+ if(name==='Bag Nominal Volume')return 'Bag Nominal Volume (L)';
+ if(name==='Bag Fill Ratio')return 'Fill Ratio (%)';
+ if(name==='작업 부피')return 'Working volume (L)';
+ if(gasNames.includes(name)){
+   const label=name==='Headspace'?'Headspace Air':name;
+   return label+' (SU: VVM · RU: L/min)';
+ }
+ return waveUnits[name]?name+' ('+waveUnits[name]+')':name;
+}
+const waveGroups=[
+ ['작업 부피 및 로킹',['Bag Nominal Volume','작업 부피','Bag Fill Ratio','Rocking Rate','Rocking Angle']],
+ ['가스 공급 및 환경 제어',gasNames],
+ ['세포 성장 및 단계 인계',categories[1][2]],
+];
+const isTank=stage=>stage==='STR'||stage==='Stainless';
+const strGroups=[
+ ['장비 및 작업 부피',['Total volume (L)','Min working volume (L)','Max working volume (L)','작업 부피','Bag Fill Ratio','pH measurement range (pH)','DO measurement range (%)']],
+ ['임펠러 및 용기 형상',['임펠러 형상','Impeller configuration','Impeller diameter Di (mm)','Vessel diameter Dv (mm)','Ratio Di/Dv','Vessel height Hv (mm)','Liquid height Hₗ (mm)','Ratio Hv/Dv','Ratio Hₗ/Dv','Newton number (Np)','Max P/V at max working volume and max rpm (W/m³)']],
+ ['가스 유량 제어기 사양',['MFC (Overlay)','MFC (Air)','MFC (O₂)','MFC (CO₂)']],
+ ['Stage G · 배지 및 접종',['Batched media volume (kg)','Bioreactor temperature (°C)','Temperature shift 시점 · 접종 후 (h)','Temperature shift 목표 온도 (°C)','Pressure','Air saturation prior to inoculation (NLPM)','Pre-inoculation antifoam addition (g)','Target initial VCD (10⁶ cells/mL)']],
+ ['Stage G · 교반 및 환경 제어',['교반 속도','Agitation P/V (W/m³)','Liquid density ρ (kg/m³)',...gasNames,'pH set point','pH deadband (± pH)','DO control (%)']],
+
+ ['Stage G · 공급 및 배양',['Glucose target conc. (g/L)','Glucose feeding time (h)']],
+ ['세포 성장 및 단계 인계',categories[1][2]]
+];
+const vesselDiameter='Vessel diameter Dv (mm)';
+const strRatios={
+ 'Ratio Di/Dv':['Impeller diameter Di (mm)','임펠러 직경'],
+ 'Ratio Hv/Dv':['Vessel height Hv (mm)','용기 높이'],
+ 'Ratio Hₗ/Dv':['Liquid height Hₗ (mm)','액면 높이']
+};
+const pvKeys=['Newton number (Np)','Liquid density ρ (kg/m³)','Impeller diameter Di (mm)','작업 부피'];
+const pvName='Agitation P/V (W/m³)';
+function sideValue(row,side){return row?.same?'':row?.[side]}
+function powerTransfer(values){
+ const number=v=>positive(String(v??''))?Number(v):NaN;
+ const rpm=values['교반 속도'];
+ const speed=rpm?.selected?number(rpm.SU):NaN;
+ const rows=pvKeys.map(key=>values[key]);
+ const target=values[pvName]?.selected?number(values[pvName].SU):NaN;
+ const [np,rho,d,v]=rows.map(r=>r?.selected&&!r.tbd?number(sideValue(r,'RU')):NaN);
+ const direct=60*Math.cbrt(target*(v/1000)/(np*rho*(d/1000)**5));
+ const [k,f,diam,vol]=rows.map(r=>{
+   if(!r?.pvUse||r.same)return 1;
+   return r.tbd?NaN:number(r.SU)/number(r.RU);
+ });
+ const relative=speed*Math.cbrt(k*f*diam**5/vol);
+ const format=x=>Number.isFinite(x)&&x>0?String(Number(x.toPrecision(7))):'';
+ const absolute=rows.every(r=>r?.pvUse||r?.same)&&!!format(direct);
+ const ru=absolute?direct:relative;
+ return {rpm:format(ru),ruPV:format(target)};
+}
+function geometryRatio(values,name,side){
+ const numerator=values[strRatios[name][0]],denominator=values[vesselDiameter];
+ if(!numerator?.selected||!denominator?.selected)return '';
+ if(side==='RU'&&(numerator.tbd||denominator.tbd))return 'TBD';
+ const a=String(sideValue(numerator,side)??''),b=String(sideValue(denominator,side)??'');
+ if(!positive(a)||!positive(b))return '';
+ return String(Number((Number(a)/Number(b)).toPrecision(6)));
+}
+function strLabel(name){
+ const flowLabels={'Headspace':'Overlay flow rate','Sparger Air':'Air sparge rate','Sparger O₂':'Oxygen sparge rate','Sparger CO₂':'CO₂ sparge rate'};
+ if(flowLabels[name])return flowLabels[name]+' (SU: VVM · RU: L/min)';
+ if(strRatios[name])return name+' ('+strRatios[name][1]+' ÷ 용기 직경)';
+ if(name==='DO measurement range (%)')return 'DO measurement range ≥ 입력값 (%)';
+ if(name==='임펠러 형상')return 'Impeller type (Ex. Pitched 3-blade)';
+ if(name==='Impeller configuration')return 'Impeller configuration (Ex. 1× impeller, down-pumping)';
+ const labels={'임펠러 형상':'Impeller type','교반 속도':'Bioreactor agitation (rpm)'};
+ return labels[name]||waveLabel(name);
+}
+const harvestGroups=[
+ ['수확 및 보관',['CCF hold temperature (°C)','CCF hold time (h)','Intermediate hold agitation (rpm)','Intermediate hold P/V (W/m³)']],
+ ['원심분리',['Sigma factor (Σ, m²)','Steady-state bowl speed (rpm)','Centrifuge feed flow rate (L/h)','Centrate back pressure (barg)']],
+ ['여과',['예상 CCF volume (L)','Depth filtration flux (LMH)','Depth filtration flow rate (L/min)','WFI pre-flushing volume (L/1.1 m²)','Harvest buffer priming volume (L/1.1 m²)','Harvest buffer chasing volume (L/1.1 m²)','Maximum inlet pressure for depth filters (bar)','Maximum inlet pressure for sterile filters (bar)']]
+];
+function mergeCentrifuge(project){
+ if(project.stage==='Centrifuge')project.stage='Harvest';
+ if(project.harvestMerged)return;
+ const old=project.stages?.Centrifuge;
+ if(old){project.stages.Harvest={...old,...project.stages.Harvest}}
+ const saved=project.sheets?.Centrifuge;
+ if(saved){
+   const harvest=project.sheets.Harvest??=[];
+   for(const r of saved)if(!harvest.some(h=>h.name===r.name))harvest.push({...r});
+ }
+ project.harvestMerged=true;
+}
+const stageFields={Wave:waveGroups.flatMap(group=>group[1]),STR:strGroups.flatMap(group=>group[1]),Stainless:strGroups.flatMap(group=>group[1]),Harvest:harvestGroups.flatMap(group=>group[1])};
+const positive=v=>/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(v.trim())&&Number(v)>0&&Number.isFinite(Number(v));
+function section(title){
+ const el=document.createElement('section');groups.append(el);
+ el.innerHTML='<h2>'+title+'</h2><article class="head"><span>분석 항목</span><span>SU · 이전 측</span><span>RU · 도입 측</span></article>';
+ return el
+}
+function tally(){
+ count.textContent='선택한 항목 '+groups.querySelectorAll('.item-select:checked').length+' / '+groups.querySelectorAll('.item-select').length
+}
+function record(name){return data[name]??={selected:false,SU:'',RU:''}}
+function row(parent,name,labelText,dependent=false){
+ const item=record(name),el=document.createElement('article');parent.append(el);
+ const label=document.createElement(dependent?'span':'label');el.append(label);
+ const check=dependent?null:document.createElement('input');
+ if(check){check.type='checkbox';check.className='item-select';check.checked=item.selected;label.append(check)}
+ else label.className='diameter-label';
+ label.append(labelText);
+ const fields=['SU','RU'].map(side=>{
+ const field=document.createElement('input');field.type='text';field.value=item[side];field.placeholder=side+' 값';field.setAttribute('aria-label',side+' '+labelText);el.append(field);
+ field.oninput=()=>{item[side]=field.value;if(side==='SU'&&item.linkSU)item.RU=item.SU;el.dispatchEvent(new Event('edit'));save()};
+ return field});
+ const cell=document.createElement('div');cell.className='ru-entry';
+ fields[1].replaceWith(cell);cell.append(fields[1]);
+ const isSTR=isTank(book.entries[book.active].stage);
+ if(item.tbd){item.tbd=false;item.RU=''}
+ const calculated=(isSTR&&(name==='교반 속도'||name===pvName))||!!strRatios[name]||name==='Bag Fill Ratio'||name===shaker.speed||name===centrifuge.speed||gasNames.includes(name);
+ let syncControls=()=>{};
+ if(dependent && item.tbd){item.RU='';item.tbd=false;fields[1].value=''}
+ if(!calculated && !dependent){
+   const actions=document.createElement('div');actions.className='ru-actions';cell.append(actions);
+   const copy=document.createElement('button'),same=document.createElement('button');
+   copy.type=same.type='button';copy.textContent='SU와 동일';same.textContent='동일';
+   copy.setAttribute('aria-label',labelText+' RU를 SU 입력값과 연결');
+   same.setAttribute('aria-label',labelText+' 양측 동일 표시');
+   actions.append(copy,same);
+   syncControls=()=>{
+     copy.disabled=same.disabled=fields[1].disabled;
+     copy.setAttribute('aria-pressed',String(!!item.linkSU));
+     same.setAttribute('aria-pressed',String(!!item.same));
+     fields[0].readOnly=!!item.same;fields[1].readOnly=!!(item.same||item.linkSU);
+     fields[0].value=item.same?'동일':(item.SU||'');
+     fields[1].value=item.same?'동일':(item.RU||'');
+   };
+   function toggle(mode){
+     const activate=!item[mode];
+     if(item.same||item.linkSU){
+       if(item.same)item.SU=item.beforeSU??item.SU;
+       item.RU=item.beforeRU??item.RU;
+     }
+     item.same=false;item.linkSU=false;item.tbd=false;
+     if(activate){
+       item.beforeSU=item.SU;item.beforeRU=item.RU;
+       item[mode]=true;
+       if(item.same){item.SU='';item.RU=''}
+       else item.RU=item.SU;
+     }
+     el.dispatchEvent(new Event('edit'));save();
+   }
+   copy.onclick=()=>toggle('linkSU');same.onclick=()=>toggle('same');
+   el.addEventListener('edit',syncControls);
+ }
+ function enable(on){for(const field of fields)field.disabled=!on;syncControls()}
+ enable(item.selected);
+ if(check)check.onchange=()=>{item.selected=check.checked;enable(item.selected);el.dispatchEvent(new Event('edit'));tally();save()};
+ return {el,item,fields,enable,check}
+}
+function calculator(config){
+ const {speed,dimension,symbol,unit,basis,note}=config;
+ const panel=section(speed+' 계산'),rpm=row(panel,speed,speed),param=row(panel,dimension,symbol+' ('+unit+')',true);
+ const output=rpm.fields[1];output.readOnly=true;output.placeholder='자동 계산';
+ const foot=document.createElement('aside');panel.append(foot);
+ foot.innerHTML='<b>'+basis+'</b><p>SU RPM × √(SU '+symbol+' / RU '+symbol+') = RU RPM</p><output aria-live="polite"></output><p><small>※ '+note+'</small></p>';
+ function refresh(){
+ const active=rpm.item.selected;param.enable(active);
+ const inputs=[rpm.item.SU,param.item.SU,param.item.RU];
+ const value=active&&inputs.every(positive)?Number(inputs[0])*Math.sqrt(Number(inputs[1])/Number(inputs[2])):NaN;
+ const pending=active&&param.item.tbd; const valid=!pending&&Number.isFinite(value)&&value>0;
+ output.value=valid?String(Number(value.toPrecision(6))):'';
+ rpm.item.calculatedRU=output.value;
+ foot.querySelector('output').textContent=pending?'계산 대기 · RU '+symbol+'을 입력하세요.':valid?inputs[0]+' × √('+inputs[1]+' / '+inputs[2]+') = '+output.value+' rpm':speed+'을 선택하고 SU RPM과 양측 '+symbol+'을 양수로 입력하세요.'
+ }
+ rpm.el.addEventListener('edit',refresh);param.el.addEventListener('edit',refresh);refresh()
+}
+let viewingSheet=false;
+function gasFlow(vvm,volume){
+ if(!volume?.selected || volume.tbd || !positive(String(sideValue(volume,'RU'))))return '';
+ if(!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(String(vvm).trim()))return '';
+ const flow=Number(vvm)*Number(sideValue(volume,'RU'));
+ return Number.isFinite(flow)?String(Number(flow.toPrecision(12))):'';
+}
+function fillRatio(values,side,stage){
+ const bag=values[isTank(stage)?'Total volume (L)':'Bag Nominal Volume'],volume=values['작업 부피'];
+ if(!bag?.selected||!volume?.selected)return '';
+ if(side==='RU'&&(bag.tbd||volume.tbd))return 'TBD';
+ if(!positive(String(sideValue(bag,side)))||!positive(String(sideValue(volume,side))))return '';
+ return String(Number((Number(sideValue(volume,side))/Number(bag[side])*100).toFixed(2)));
+}
+const passages=['Stage A (Thaw)','Stage B','Stage C','Stage D'];
+function flaskGroups(passage){
+ const equipment=categories[0][2].filter(n=>![shaker.speed,shaker.dimension,'Flask Geometry'].includes(n) && (!passage||n!=='Stage (Passage)'));
+ const groups=[[categories[0][0],equipment],[categories[1][0],categories[1][2]]];
+ if(passage){
+   const names=['Media warming temperature','Total warming time for media','Batched media volume'];
+   names.push('Water bath temperature','Vial thaw time','Centrifugation force','Centrifugation time');
+   names.push('Target initial VCD');
+   groups.unshift([passage+' · 배지 및 공정 조건',names]);
+ }
+ return groups;
+}
+function stageTabs(project){
+ const saved=Object.keys(project.sheets||{}).filter(k=>k.startsWith('Flask · ')).map(k=>k.slice('Flask · '.length));
+ return [...new Set([passages[0],...Object.keys(project.passages||{}),...saved])];
+}
+function nextStage(names){
+ for(let i=1;;i++){
+   let suffix='',n=i;
+   while(n){n--;suffix=String.fromCharCode(65+n%26)+suffix;n=Math.floor(n/26)}
+   const name=i===1?passages[0]:'Stage '+suffix;
+   if(!names.includes(name))return name;
+ }
+}
+function passageDraft(project,passage){
+ if(!passage)return project.data;
+ project.passages??={};
+ return project.passages[passage]??={};
+}
+function sheetKey(stage,passage){return stage==='Flask'&&passage?'Flask · '+passage:stage}
+function selectedRows(stage,values,passage){
+ const rows=[];
+ function add(name,su,ru){rows.push({name,su,ru})}
+ const configs=stage==='Flask'?[shaker,centrifuge]:stage==='Harvest'?[centrifuge]:[];
+ for(const c of configs){
+   const speed=values[c.speed],param=values[c.dimension];
+   if(speed?.selected){
+     add(c.speed,speed.SU,speed.calculatedRU||'계산 대기');
+     add(c.symbol+' ('+c.unit+')',param?.SU,param?.tbd?'TBD':param?.RU);
+   }
+ }
+ const names=stage==='Flask'?flaskGroups(passage).flatMap(group=>group[1]):stageFields[stage];
+ for(const name of names){const item=values[name];if(strRatios[name]&&item?.selected){add(name,geometryRatio(values,name,'SU'),geometryRatio(values,name,'RU'));continue}if(isTank(stage)&&item?.selected&&(name==='교반 속도'||name===pvName)){const p=powerTransfer(values);add(name,item.SU,name===pvName?p.ruPV:p.rpm);continue}if(item?.selected&&item.same){add(name,'동일','동일');continue}if(name==='Bag Fill Ratio' && item?.selected){add(name,fillRatio(values,'SU',stage)||'계산 대기',fillRatio(values,'RU',stage)||'계산 대기');continue}if(item?.selected)add(name,item.SU,gasNames.includes(name)?(gasFlow(item.SU,values['작업 부피'])||'계산 대기'):(item.tbd?'TBD':item.RU))}
+ if(isTank(stage))for(const entry of rows)if(pvKeys.includes(entry.name))entry.pvUse=!!values[entry.name].pvUse;
+ for(const entry of rows){if(values[entry.name]?.linkSU)entry.linkSU=true}
+ if(isTank(stage)){
+   const pressure=rows.find(r=>r.name==='Pressure');
+   if(pressure)pressure.unit=values.Pressure.unit||'barg';
+   const state=values.production;
+   if(feedEnabled(state))for(const f of state.feeds){
+     const row={name:'Feed media addition',day:f.day,su:f.su,ru:feedRU(f)};
+     if(f.mode){row.mode=f.mode;row.manualRU=f.ru}
+     rows.push(row);
+   }
+ }
+ if(stage==='Harvest'){
+   for(const [group,title] of filterTypes){
+     const state=values[group];if(!state?.selected)continue;
+     state.filters.forEach((f,i)=>{
+       for(const [key,label] of filterFields){
+         const read=side=>filterValue(values,f,key,side);
+         rows.push({name:title+' '+(i+1)+' · '+label,filterGroup:group,filterIndex:i,filterField:key,su:read('su'),ru:read('ru'),linked:!!f[key]?.linked,manualRU:f[key]?.ru??'',manualSU:f[key]?.su??''});
+       }
+     });
+   }
+ }
+ return rows
+}
+const filterTypes=[['depthFilters','Depth filter'],['finalFilters','Final filter (Sterile filter)']];
+const filterFields=[['model','모델명'],['area','개당 여과 면적 (m²)'],['capacity','Filter capacity (L/m²)'],['count','필요 개수 (개)']];
+const ccfKey='예상 CCF volume (L)';
+function blankFilter(){return {model:{su:'',ru:''},area:{su:'',ru:''},capacity:{su:'',ru:''}}}
+function filterValue(values,f,key,side){
+ const entry=f[key];
+ if(side==='ru'&&entry?.linked)return filterValue(values,f,key,'su');
+ if(key==='count'){
+   if(side==='su'&&entry?.su)return entry.su;
+   return filterCount(values,f,side);
+ }
+ return entry?.[side]??'';
+}
+function filterCount(values,f,side){
+ const ccf=values[ccfKey];
+ if(!ccf?.selected||ccf.same)return '';
+ const volume=Number(ccf[side.toUpperCase()]),area=Number(filterValue(values,f,'area',side)),capacity=Number(filterValue(values,f,'capacity',side));
+ if(![volume,area,capacity].every(n=>Number.isFinite(n)&&n>0))return '';
+ const raw=volume/(area*capacity);
+ const count=Math.ceil(Number(raw.toPrecision(15)));
+ return Number.isSafeInteger(count)&&count>0?String(count):'';
+}
+function filtrationPanel(values,parent){
+ const volume=row(parent,ccfKey,ccfKey);
+ const hint=document.createElement('p');hint.textContent='필요 개수 = 예상 CCF 부피 ÷ (필터 1개 면적 × Capacity), 소수점 올림. 각 모델이 전체 CCF를 처리하는 기준입니다. SU 필요 개수는 직접 입력할 수 있으며, 비워 두면 계산값을 사용합니다.';parent.append(hint);
+ for(const [group,title] of filterTypes){
+   const state=values[group]??={selected:false,filters:[blankFilter()]};
+   const label=document.createElement('label'),check=document.createElement('input');
+   check.type='checkbox';check.className='item-select';check.checked=state.selected;
+   label.append(check,' '+title);parent.append(label);
+   const body=document.createElement('div');parent.append(body);
+   let outputs=[];
+   function refresh(){for(const update of outputs)update()}
+   volume.el.addEventListener('edit',refresh);
+   function draw(){
+     body.replaceChildren();outputs=[];if(!state.selected)return;
+     state.filters.forEach((f,index)=>{
+       const heading=document.createElement('h3');heading.textContent=title+' '+(index+1);body.append(heading);
+       for(const [key,caption] of filterFields){
+         const line=document.createElement('article'),name=document.createElement('span');name.textContent=caption;line.append(name);
+         const entry=f[key]??={su:'',ru:''};
+         const su=document.createElement('input'),ru=document.createElement('input');
+         for(const [field,side] of [[su,'SU'],[ru,'RU']]){
+           field.placeholder=side+' '+caption;field.setAttribute('aria-label',heading.textContent+' '+field.placeholder);
+           if(key!=='model'){field.type='number';field.min=key==='count'?'1':'0';field.step=key==='count'?'1':'any'}
+         }
+         su.value=entry.su;
+         su.oninput=()=>{
+           if(!su.validity.valid){su.setCustomValidity('');su.reportValidity();su.value=entry.su;return}
+           entry.su=su.value;refresh();save();
+         };
+         ru.oninput=()=>{entry.ru=ru.value;refresh();save()};
+         const cell=document.createElement('div'),link=document.createElement('button');
+         cell.className='ru-entry';link.type='button';link.textContent='SU와 동일';
+         link.setAttribute('aria-label',heading.textContent+' '+caption+' SU와 동일');
+         link.onclick=()=>{entry.linked=!entry.linked;refresh();save()};
+         cell.append(ru,link);line.append(su,cell);
+         outputs.push(()=>{
+           if(key==='count')su.placeholder=filterCount(values,f,'su')||'SU 직접 입력';
+           ru.readOnly=key==='count'||!!entry.linked;
+           if(ru.value!==String(filterValue(values,f,key,'ru')))ru.value=filterValue(values,f,key,'ru');
+           if(key==='count')ru.placeholder=entry.linked?'SU 개수 대기':'계산 대기';
+           link.setAttribute('aria-pressed',String(!!entry.linked));
+         });
+         body.append(line);
+       }
+     });
+     const add=document.createElement('button');add.type='button';add.textContent='+ '+title+' 추가';body.append(add);
+     add.onclick=()=>{state.filters.push(blankFilter());draw();body.querySelectorAll('h3')[state.filters.length-1].nextElementSibling.querySelector('input').focus();save()};
+     refresh();
+   }
+   check.onchange=()=>{state.selected=check.checked;draw();tally();save()};draw();
+ }
+}
+function feedEnabled(state){
+ return state?.useFeed??!!state?.feeds?.some(f=>[f.day,f.su,f.ru].some(v=>String(v??'').trim()));
+}
+function feedRU(f){return f.mode==='same'?f.su:f.mode==='tbd'?'TBD':f.ru}
+function feedPanel(values,parent){
+ const state=values.production??={feeds:[],active:0};
+ state.useFeed=feedEnabled(state);
+ if(!state.dayTabsReviewed){
+   const blank=f=>![f.day,f.su,f.ru,f.mode].some(v=>String(v??'').trim());
+   const emptyDayTwo=f=>String(f.day).trim()==='2'&&blank({...f,day:''});
+   if(state.feeds.length===3 && state.feeds.slice(0,2).every(emptyDayTwo) && blank(state.feeds[2])){
+     state.feeds=state.feeds.slice(2);state.active=0;
+   }
+   state.dayTabsReviewed=true;
+ }
+ const panel=document.createElement('section');
+ const body=document.createElement('div');panel.append(body);parent.append(panel);
+ function draw(){
+   body.replaceChildren();
+   if(!state.feeds.length)state.feeds.push({day:'',su:'',ru:''});
+   const heading=document.createElement('h3'),label=document.createElement('label'),use=document.createElement('input');
+   use.type='checkbox';use.className='item-select';use.checked=state.useFeed;
+   label.append(use,' Feed media addition');heading.append(label);body.append(heading);
+   use.onchange=()=>{state.useFeed=use.checked;draw();tally();save()};
+   if(!state.useFeed)return;
+   const bar=document.createElement('nav');body.append(bar);
+   state.active=Math.min(state.active,state.feeds.length-1);
+   state.feeds.forEach((feed,i)=>{
+     const button=document.createElement('button');button.textContent='Day '+(feed.day||'—');
+     button.setAttribute('aria-pressed',String(i===state.active));
+     button.onclick=()=>{state.active=i;draw();save()};bar.append(button);
+   });
+   const add=document.createElement('button');add.textContent='+ Feed 탭 추가';
+   add.onclick=()=>{
+     
+     state.feeds.push({day:'',su:'',ru:''});
+     state.active=state.feeds.length-1;draw();save();
+   };bar.append(add);
+   const feed=state.feeds[state.active],line=document.createElement('article');body.append(line);
+   let ruInput;for(const [key,title] of [['day','배양일 (Day)'],['su','SU 추가량 (mL)'],['ru','RU 추가량 (mL)']]){
+     const label=document.createElement('label'),input=document.createElement('input');
+     input.type='number';input.min='0';input.step=key==='day'?'1':'any';input.value=feed[key];if(key==='day')input.placeholder='Day 직접 입력';
+     if(key==='ru'){ruInput=input;if(feed.mode){input.type=feed.mode==='tbd'?'text':'number';input.readOnly=true;input.value=feedRU(feed)}}
+     input.oninput=()=>{feed[key]=input.value;if(key==='su'&&feed.mode==='same')ruInput.value=feed.su;if(key==='day')bar.children[state.active].textContent='Day '+(feed.day||'—');save()};
+     label.append(title,input);line.append(label);
+     if(key==='ru'){
+       const actions=document.createElement('div');actions.className='ru-actions';line.append(actions);
+       for(const [mode,text] of [['same','SU와 동일'],['tbd','TBD']]){
+         const button=document.createElement('button');button.type='button';button.textContent=text;
+         button.setAttribute('aria-pressed',String(feed.mode===mode));
+         button.onclick=()=>{feed.mode=feed.mode===mode?'':mode;draw();save()};actions.append(button);
+       }
+     }
+   }
+ }
+ draw();
+}
+function editSaved(project,stage,snapshot,passage){
+ const draft=stage==='Flask'?passageDraft(project,passage):(project.stages[stage]??={});
+ const current=selectedRows(stage,draft,passage);
+ if(JSON.stringify(current)!==JSON.stringify(snapshot) &&
+    !confirm('현재 공정의 임시 입력과 저장된 시트가 다릅니다. 저장된 시트 값으로 편집을 시작할까요?'))return;
+ const id=sheetKey(stage,passage);if(project.savedStageNames && id in project.savedStageNames){project.stageNames??={};project.stageNames[id]=project.savedStageNames[id]}
+ for(const [key,entry] of Object.entries(draft)){if(key==='production'||key==='depthFilters'||key==='finalFilters')continue;entry.selected=false;if(isTank(stage))entry.pvUse=false}
+ if(isTank(stage)){
+   const feeds=snapshot.filter(r=>r.name==='Feed media addition').map(r=>({day:r.day,su:r.su,ru:r.manualRU??r.ru,mode:r.mode||''}));
+   
+   draft.production={feeds:feeds.length?feeds:(draft.production?.feeds||[]),active:0,useFeed:!!feeds.length};
+ }
+ if(stage==='Harvest'){
+   for(const [group] of filterTypes){
+     const filters=[];
+     for(const r of snapshot.filter(r=>Number.isInteger(r.filterIndex)&&(r.filterGroup||'depthFilters')===group)){
+       const filter=filters[r.filterIndex]??=blankFilter();
+       filter[r.filterField]={su:r.manualSU??(r.filterField==='count'?'':r.su),ru:r.manualRU??(r.filterField==='count'?'':r.ru),linked:!!r.linked};
+     }
+     if(filters.length)draft[group]={selected:true,filters};
+     else if(draft[group])draft[group].selected=false;
+   }
+ }
+ for(const saved of snapshot){
+   if(stage==='Harvest'&&Number.isInteger(saved.filterIndex))continue;
+   if(isTank(stage)&&['Production','Feed media addition'].includes(saved.name))continue;
+   const dimension=[shaker,centrifuge].find(c=>saved.name===c.symbol+' ('+c.unit+')');
+   const name=dimension?dimension.dimension:saved.name;
+   const item=draft[name]??={};if(name==='Pressure')item.unit=saved.unit||'barg';
+   item.same=saved.ru==='동일';item.linkSU=!!saved.linkSU;delete item.beforeSU;delete item.beforeRU;
+   if(isTank(stage)&&pvKeys.includes(name))item.pvUse=!!saved.pvUse;
+   item.tbd=saved.ru==='TBD';if(name===shaker.speed||name===centrifuge.speed)item.tbd=!!saved.explicitTbd;item.selected=!dimension;item.SU=item.same?'':(saved.su??'');if(item.same)item.RU='';
+   if(!item.same && name!==shaker.speed && name!==centrifuge.speed)item.RU=item.tbd?(item.RU||''):(saved.ru??'');
+ }
+ if(stage==='Flask')project.passage=passage;
+ project.stage=stage;viewingSheet=false;render();save();
+ document.querySelector('#editor').scrollIntoView({block:'start'})
+}
+function drawSummary(project){
+ summary.replaceChildren();
+ const heading=document.createElement('h2');heading.textContent=project.name+' · 저장된 시트';summary.append(heading);
+  const flaskPages=stageTabs(project).filter(p=>project.sheets?.[sheetKey('Flask',p)]);
+ if(!flaskPages.length)flaskPages.push(passages[0]);
+ for(const [stage,passage] of stages.flatMap(s=>s==='Flask'?flaskPages.map(p=>[s,p]):[[s,'']])){
+   const panel=document.createElement('section'),title=document.createElement('h3');const id=sheetKey(stage,passage);title.textContent=[id,project.savedStageNames?.[id]].filter(Boolean).join(' · ');panel.append(title);summary.append(panel);
+   const stored=project.sheets?.[sheetKey(stage,passage)];
+   const snapshot=isTank(stage)?stored?.filter(r=>r.name!=='Note'&&r.name!=='Production'):stage==='Wave'?stored?.filter(r=>r.name!=='작업 부피별 장비 적격성 자료'):stored;
+   if(snapshot){
+     const edit=document.createElement('button');edit.textContent='수정';
+     edit.setAttribute('aria-label',stage+' 저장값 수정');edit.onclick=()=>editSaved(project,stage,snapshot,passage);title.append(edit)
+   }
+   if(!snapshot?.length){const note=document.createElement('p');note.textContent='이번 기술이전에서 수행하지 않는 공정입니다.';panel.append(note);continue}
+   const table=document.createElement('table');table.className='sheet';table.innerHTML='<thead><tr><th>선택 항목 및 계산 입력</th><th>SU · 이전 측</th><th>RU · 도입 측</th></tr></thead>';panel.append(table);
+   const body=table.createTBody();
+   for(const item of snapshot){
+     const tr=body.insertRow();
+     for(const value of [(isTank(stage)?(item.name==='Feed media addition'?'Day '+(item.day||'—')+' · Feed media addition (mL)':item.name==='Pressure'?'Pressure ('+(item.unit||'barg')+')':strLabel(item.name)):stage==='Wave'?waveLabel(item.name):stage==='Flask'?flaskLabel(item.name):item.name),item.su,item.ru])tr.insertCell().textContent=value||'미입력';
+     const config=[shaker,centrifuge].find(c=>c.speed===item.name);
+     if(!config)continue;
+     const dimension=snapshot.find(r=>r.name===config.symbol+' ('+config.unit+')');
+     const formula=document.createElement('small');
+     formula.className='sheet-formula';
+     formula.textContent='SU RPM × √(SU '+config.symbol+' / RU '+config.symbol+') = RU RPM';
+     tr.cells[2].append(formula);
+     if(dimension && [item.su,dimension.su,dimension.ru,item.ru].every(v=>v && Number.isFinite(Number(v)) && Number(v)>0)){
+       const expression=document.createElement('small');
+       expression.className='sheet-formula';
+       expression.textContent=item.su+' × √('+dimension.su+' / '+dimension.ru+') = '+item.ru+' rpm';
+       tr.cells[2].append(expression);
+     }
+   }
+ }
+}
+function showView(sheet){
+ viewingSheet=sheet;editor.hidden=sheet;summary.hidden=!sheet;
+ editView.setAttribute('aria-pressed',String(!sheet));sheetView.setAttribute('aria-pressed',String(sheet));
+ if(sheet)drawSummary(book.entries[book.active])
+}
+editView.onclick=()=>showView(false);sheetView.onclick=()=>showView(true);
+commit.onclick=()=>{
+ const project=book.entries[book.active],stage=project.stage||'Flask';
+ const id=sheetKey(stage,project.passage);project.sheets??={};const prior=project.sheets[id];project.savedStageNames??={};const priorName=project.savedStageNames[id];project.savedStageNames[id]=project.stageNames?.[id]?.trim()||'';
+ project.sheets[id]=selectedRows(stage,data,project.passage);
+ if(save()){showView(true);msg.textContent=stage+' 공정을 시트에 저장했습니다.';sheetView.focus()}
+ else {if(prior===undefined)delete project.sheets[id];else project.sheets[id]=prior;project.savedStageNames[id]=priorName}
+};
+function render(){
+ const project=book.entries[book.active];mergeCentrifuge(project);const stage=project.stage||'Flask';
+ projects.replaceChildren();for(const [id,p] of Object.entries(book.entries))projects.add(new Option(p.name,id));
+ projects.value=book.active;projectName.value=project.name;
+ const first=passages[0];
+ if(!project.legacyFlaskMerged){
+   const draft=passageDraft(project,first);
+   for(const [key,value] of Object.entries(project.data||{})){
+     const row=draft[key];
+     if(!row||!(row.selected||row.SU||row.RU||row.tbd))draft[key]={...value};
+   }
+   if(project.sheets?.Flask){
+     const key=sheetKey('Flask',first);
+     project.sheets[key]??=project.sheets.Flask;
+   }
+   project.legacyFlaskMerged=true;
+ }
+ const passage=project.passage||first;
+ if(stage==='Flask')project.passage=passage;
+ project.stages??={};data=stage==='Flask'?passageDraft(project,passage):(project.stages[stage]??={});
+ tabs.replaceChildren();for(const name of stages){
+ const button=document.createElement('button');button.textContent=name;button.setAttribute('aria-pressed',String(name===stage));tabs.append(button);
+ button.onclick=()=>{project.stage=name;render();save()}
+ }
+ groups.replaceChildren();
+ const settings=document.querySelector('#stageSettings');settings.replaceChildren();
+ if(stage==='Flask'||stage==='Wave'||isTank(stage)){
+   project.stageNames??={};
+   const id=sheetKey(stage,passage),label=document.createElement('label'),input=document.createElement('input');
+   input.type='text';input.placeholder='예: Seed5(N-1)';input.value=project.stageNames[id]||'';
+   label.append(stage==='Flask'?passage+' · Stage name':'Stage name',input);settings.append(label);
+   input.oninput=()=>{project.stageNames[id]=input.value;save()};
+ }
+
+ if(stage==='Flask'){
+   const bar=document.createElement('div');
+   bar.setAttribute('role','group');bar.setAttribute('aria-label','Flask stages');
+   const names=stageTabs(project);
+   for(const name of names){
+     const button=document.createElement('button');
+     button.type='button';button.textContent=name;
+     button.setAttribute('aria-pressed',String(name===passage));
+     button.onclick=()=>{project.passage=name;render();save()};
+     bar.append(button);
+   }
+   const add=document.createElement('button');
+   add.type='button';add.textContent='+ Flask stage 추가';
+   add.onclick=()=>{
+     project.passage=nextStage(names);
+     passageDraft(project,project.passage);render();save();
+     groups.querySelector('button[aria-pressed="true"]')?.focus();
+   };
+   bar.append(add);groups.append(bar);
+   calculator(shaker);
+ }
+ if(stage==='Flask')calculator(centrifuge);
+ const lists=stage==='Flask'?flaskGroups(passage):isTank(stage)?strGroups:stage==='Wave'?waveGroups:stage==='Harvest'?harvestGroups:[[stage+' 기술이전 항목',stageFields[stage]]];
+ let mirrorPanel;const powerRows=new Map();
+ function refreshPower(){
+   const rpm=powerRows.get('교반 속도'),pv=powerRows.get(pvName);
+   if(!rpm||!pv)return;
+   const result=powerTransfer(data);
+   rpm.fields[1].value=result.rpm;
+   pv.fields[1].value=result.ruPV;
+ }
+ const ratioRows=new Map();
+ function refreshRatios(){
+   for(const [name,r] of ratioRows){
+     for(const [i,side] of ['SU','RU'].entries())r.fields[i].value=geometryRatio(data,name,side);
+   }
+ }
+ let volumeRow,ratioRow;
+ const gases=[];
+ function refreshGas(){
+   if(ratioRow){
+     for(const [index,side] of ['SU','RU'].entries()){
+       ratioRow.fields[index].value=fillRatio(data,side,stage);
+     }
+   }
+   const volume=volumeRow.item;
+   for(const gas of gases){
+     const result=gasFlow(gas.item.SU,volume);
+     gas.fields[1].value=result;
+     gas.fields[1].placeholder='계산 대기';
+   }
+ }
+ const harvestPanels=new Map(),harvestButtons=new Map();
+ if(stage==='Harvest'){
+   const nav=document.createElement('nav');nav.setAttribute('aria-label','Harvest 세부 공정');groups.append(nav);
+   function activate(title){
+     project.harvestTab=title;
+     for(const [name,panels] of harvestPanels)for(const panel of panels)panel.hidden=name!==title;
+     for(const [name,button] of harvestButtons)button.setAttribute('aria-pressed',String(name===title));
+   }
+   for(const [title] of harvestGroups){
+     const button=document.createElement('button');button.type='button';button.textContent=title;nav.append(button);
+     harvestButtons.set(title,button);button.onclick=()=>{activate(title);save()};
+   }
+   activate(harvestButtons.has(project.harvestTab)?project.harvestTab:harvestGroups[0][0]);
+ }
+ for(const [title,names] of lists){
+   const panel=section(title);
+   if(stage==='Harvest'){
+     const panels=[panel];
+     if(title==='여과')filtrationPanel(data,panel);
+     if(title==='원심분리'){calculator(centrifuge);panels.push(groups.lastElementChild)}
+     harvestPanels.set(title,panels);for(const p of panels)p.hidden=title!==project.harvestTab;
+   }
+   if(names.includes(gasNames[0])){
+     const hint=document.createElement('p');
+     hint.textContent='RU 유량(L/min) = SU VVM × RU Working volume (L). Working volume 항목을 선택하고 RU 칸에 값을 입력하세요.';
+     panel.append(hint);
+   }
+   for(const name of names){
+     if(stage==='Harvest'&&name===ccfKey)continue;
+     const isVolume=(stage==='Wave'||isTank(stage)) && name==='작업 부피';
+     const r=row(panel,name,isTank(stage)?strLabel(name):stage==='Wave'?waveLabel(name):stage==='Flask'?flaskLabel(name):name);
+     if(isTank(stage)&&name==='Pressure'){
+       const unit=document.createElement('select');unit.setAttribute('aria-label','Pressure 입력 단위');
+       for(const u of ['barg','atm'])unit.add(new Option(u,u));
+       unit.value=r.item.unit||'barg';unit.onchange=()=>{r.item.unit=unit.value;save()};
+       r.check.parentElement.insertAdjacentElement('afterend',unit); const wrapper=document.createElement('div');r.el.insertBefore(wrapper,r.check.parentElement);wrapper.append(r.check.parentElement,unit);
+     }
+     if(stage==='Flask' && name==='Stage (Passage)'){
+       for(const field of r.fields)field.placeholder='예: P3';
+     }
+     if(isTank(stage)){
+       if(pvKeys.includes(name)||name==='교반 속도'||name===pvName){
+         powerRows.set(name,r);r.el.addEventListener('edit',refreshPower);
+         if(name==='교반 속도'||name===pvName){
+           const outputs=[r.fields[1]];
+           for(const input of outputs){input.readOnly=true;input.placeholder='계산 대기'}
+         }
+         if(name===pvName){
+           const guide=document.createElement('aside');
+           guide.innerHTML='<b>동일 P/V 기준 · 단일 임펠러 또는 장비 전체의 유효 Np 적용</b><p>P (W) = Np × ρ × N³ × Di⁵<br>P/V (W/m³) = Np × ρ × (rpm/60)³ × Di⁵ / V</p><p>RU rpm = SU rpm × ∛[(Np_SU/Np_RU) × (ρ_SU/ρ_RU) × (Di_SU/Di_RU)⁵ × (V_RU/V_SU)]</p><p>N은 초당 회전수입니다. Di는 mm에서 m로, 작업 부피 V는 L에서 m³로 환산합니다. SU P/V는 직접 입력합니다. 아래에서 환산에 사용할 변수만 체크하세요. 미선택 변수는 SU와 RU가 동일하다고 가정합니다. 직경만 선택하면 RU rpm = SU rpm × (Di_SU / Di_RU)^(5/3)입니다. 네 변수의 RU 절대값과 SU P/V가 모두 지정되면 목표 P/V에서 직접 역산합니다.</p>';
+           panel.append(guide);
+           mirrorPanel=guide;
+         }
+       }
+       if(strRatios[name]){
+         ratioRows.set(name,r);
+         for(const field of r.fields){field.readOnly=true;field.placeholder='치수 입력 시 자동 계산'}
+       }
+       if(name===vesselDiameter||Object.values(strRatios).some(([key])=>key===name)){
+         r.el.addEventListener('edit',refreshRatios);
+       }
+     }
+     if(isTank(stage) && name.startsWith('MFC (')){
+       for(const field of r.fields)field.placeholder='정격 유량과 장비 표기 단위';
+     }
+     if(isVolume)volumeRow=r;
+     if(name==='Bag Fill Ratio'){
+       ratioRow=r;
+       for(const field of r.fields){field.readOnly=true;field.placeholder=isTank(stage)?'Working volume ÷ Total volume × 100':'작업 부피 ÷ 백 정격 용량 × 100'}
+     }
+     if(gasNames.includes(name)){
+       r.fields[0].placeholder='SU VVM';
+       r.fields[1].readOnly=true;
+       r.fields[1].setAttribute('aria-label',name+' RU 유량 (L/min)');
+       gases.push(r);
+     }
+     if(isVolume||name==='Total volume (L)'||name==='Bag Nominal Volume'||gasNames.includes(name))r.el.addEventListener('edit',refreshGas);
+   }
+   if(isTank(stage)&&title==='Stage G · 공급 및 배양')feedPanel(data,panel);
+ }
+ if(mirrorPanel){
+   for(const key of pvKeys){
+     const source=powerRows.get(key),mirror=row(mirrorPanel,key,strLabel(key));
+     mirror.check.className='pv-use';
+     mirror.check.setAttribute('aria-label',strLabel(key)+' 환산에 사용');
+     function sync(){
+       source.check.checked=!!source.item.selected;
+       source.fields[0].value=source.item.SU||'';
+       source.enable(source.item.selected);
+       mirror.check.checked=!!source.item.pvUse;
+       mirror.fields[0].value=source.item.SU||'';
+       mirror.enable(source.item.pvUse);
+     }
+     mirror.check.onchange=()=>{
+       source.item.pvUse=mirror.check.checked;
+       if(source.item.pvUse)source.item.selected=true;
+       source.el.dispatchEvent(new Event('edit'));tally();save();
+     };
+     mirror.el.addEventListener('edit',()=>source.el.dispatchEvent(new Event('edit')));
+     source.el.addEventListener('edit',()=>{
+       if(!source.item.selected)source.item.pvUse=false;
+       sync();refreshPower();
+     });
+     sync();
+   }
+ }
+ refreshPower();refreshRatios();if(gases.length)refreshGas();
+ tally()
+ showView(viewingSheet)
+}
+render();
+</script></html>
+
+
+
+
+
+
